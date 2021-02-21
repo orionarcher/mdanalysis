@@ -115,8 +115,6 @@ class ParmEdReader(base.SingleFrameReaderBase):
         if self.filename.box is not None:
             # optional field
             ts.dimensions = self.filename.box
-        else:
-            ts._unitcell = None
 
         ts.frame = 0
         return ts
