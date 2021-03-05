@@ -1507,13 +1507,13 @@ class _CacheKey:
 def cached(key, universe_validation=False):
     """Cache a property within a class.
 
-    Requires the Class to have a cache dict :attr:`_cache` and, with
-    `universe_validation`, a :attr:`universe` with a cache dict :attr:`_cache`.
+    Requires the Class to have a cache dict :attr:`_cache`. With
+    `universe_validation=True`, the Class should inherit from
+    :class:`~MDAnalysis.core.groups.GroupBase>`.
 
     Example
     -------
-    How to add a cache for a variable to a class by using the `@cached`
-    decorator::
+    How to add a cache for a class property using the `@cached` decorator::
 
        class A(object):
            def__init__(self):
@@ -1530,13 +1530,10 @@ def cached(key, universe_validation=False):
            @property
            @cached('keyname', universe_validation=True)
            def othersize(self):
-               # This code gets run only if the lookup
-               # id(self) is not in the validation set under
-               # self.universe._cache['_valid']['keyname']
-               # After this code has been run once, id(self) is added to that
-               # set. The validation set can be centrally invalidated at the
-               # universe level (say, if a topology change invalidates specific
-               # caches).
+               # As the example above, but before the cache lookup a check is
+               # made whether this object's 'keyname' cache is valid under
+               # universe. If that check fails, the object's _cache['keyname']
+               # is cleared and re-populated after this code has run.
                return 20.0
 
 
@@ -1549,27 +1546,12 @@ def cached(key, universe_validation=False):
     def cached_lookup(func):
         @wraps(func)
         def wrapper(self, *args, **kwargs):
+            if universe_validation:
+                self._check_universe_cache_validity(key)
             try:
-                if universe_validation:  # Universe-level cache validation
-                    u_cache = self.universe._cache.setdefault('_valid', dict())
-                    # A WeakSet is used so that keys from out-of-scope/deleted
-                    # objects don't clutter it.
-                    valid_caches = u_cache.setdefault(key, weakref.WeakSet())
-                    try:
-                        if self._cache_key not in valid_caches:
-                            raise KeyError
-                    except AttributeError:  # No _cache_key yet
-                        # Must create a reference key for the validation set.
-                        # self could be used itself as a weakref but set()
-                        # requires hashing it, which can be slow for AGs. Using
-                        # id(self) fails because ints can't be weak-referenced.
-                        self._cache_key = _CacheKey()
-                        raise KeyError
                 return self._cache[key]
             except KeyError:
                 self._cache[key] = ret = func(self, *args, **kwargs)
-                if universe_validation:
-                    valid_caches.add(self._cache_key)
                 return ret
 
         return wrapper

@@ -704,6 +704,59 @@ class GroupBase(_MutableBase):
         #    return ``not np.any(mask)`` here but using the following is faster:
         return not np.count_nonzero(mask)
 
+    def _check_universe_cache_validity(self, key, universe_key=None):
+        """Pre-checks validity at the universe level before a cache lookup.
+
+        Certain caches in :class:`*Groups<~MDAnalysis.core.groups.GroupBase>`,
+        such as fragments, are only valid if some aspects of the topology
+        remain unchanged (bonds, in the fragments example).
+
+        To enable centralized invalidation of those caches, a validity registry
+        is stored under
+        :attr:`MDAnalysis.core.groups.GroupBase.universe._cache['_valid']`.
+        This method pre-checks that validity registry and clears any invalid
+        local caches.
+
+        Topology-changing methods, such as
+        :meth:`~MDAnalysis.core.universe.Universe.add_bonds`, must invalidate
+        any affected caches by clearing the relevant
+        :attr:`~MDAnalysis.core.universe.Universe._cache['_valid']` entries.
+
+        Parameters
+        ----------
+        key : str
+            The cache dictionary key of the property to be checked and possibly
+            invalidated.
+        universe_key : str (optional, defaults to the same as `key`)
+            The key of the validty dictionary under universe.
+
+
+        .. versionadded:: 2.0.0
+        """
+
+        if universe_key is None:
+            universe_key = key
+
+        u_cache = self.universe._cache.setdefault('_valid', dict())
+
+        # A WeakSet is used so that keys from out-of-scope/deleted
+        # objects don't clutter it.
+        valid_caches = u_cache.setdefault(universe_key, weakref.WeakSet())
+        try:
+            if self._cache_key in valid_caches:
+                # cache is valid
+                return
+        except AttributeError:
+            # No _cache_key yet. Must create one for the validity registry.
+            # self could be used itself as a weakref, but set() requires
+            # hashing it, which can be slow for AGs. Using id(self) fails
+            # because ints can't be weak-referenced.
+            self._cache_key = _CacheKey()
+
+        # invalidate cache but mark it already as valid for future lookups
+        self._cache.pop(key, None)
+        valid_caches.add(self._cache_key)
+
     def _get_compound_indices(self, compound):
         if compound == 'residues':
             compound_indices = self.atoms.resindices
@@ -731,6 +784,9 @@ class GroupBase(_MutableBase):
                              " or 'fragments'.".format(compound))
         return compound_indices
 
+    # This function implements its own custom caching, under _cache and with
+    # central validation under universe._cache['valid'], but independently of
+    # the @cached decorator.
     def _split_by_compound_indices(self, compound, stable_sort=False):
         """Splits a group's compounds into groups of equal compound size.
 
@@ -782,12 +838,24 @@ class GroupBase(_MutableBase):
         n_compounds : int
             The number of individual compounds.
         """
-        # Caching would help here, especially when repeating the operation
-        # over different frames, since these masks are coordinate-independent.
-        # However, cache must be invalidated whenever new compound indices are
-        # modified, which is not yet implemented.
-        # Also, should we include here the grouping for 'group', which is
-        # essentially a non-split?
+        # Should we include here the grouping for 'group', which is essentially
+        # a non-split?
+
+        # The local cache key must avoid collision with existing cache names,
+        # but the Universe one needn't.
+        local_cache_key = f'{compound}_splits'
+        self._check_universe_cache_validity(local_cache_key,
+                                            universe_key=compound)
+        try:
+            masks, is_stable = self._cache[local_cache_key]
+            # cached masks come tupled with a bool indicating whether they
+            # originate from a stable sort of compound indices
+            # stably sorted is stricter; if it's not requested then any mask
+            # will do
+            if not stable_sort or (stable_sort and is_stable):
+                return masks
+        except KeyError:
+            pass
 
         compound_indices = self._get_compound_indices(compound)
         # Are we already sorted? argsorting and fancy-indexing can be expensive
@@ -818,7 +886,9 @@ class GroupBase(_MutableBase):
                 atom_masks.append(np.where(size_per_atom == compound_size)[0]
                                    .reshape(-1, compound_size))
 
-        return atom_masks, compound_masks, len(compound_sizes)
+        masks = (atom_masks, compound_masks, len(compound_sizes))
+        self._cache[local_cache_key] = (masks, stable_sort)
+        return masks
 
     @warn_if_not_unique
     @check_pbc_and_unwrap
