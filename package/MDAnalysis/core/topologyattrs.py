@@ -2115,6 +2115,15 @@ class Molnums(ResidueAttr):
     singular = 'molnum'
     dtype = np.intp
 
+    # Right now this is the only TopologyAttr that should invalidate caches
+    # when being set. If more attrs become like this it may make sense to
+    # create a specific class for them that centrally invalidates caches.
+    def set_residues(self, rg, values):
+        super(Molnums, self).set_residues(rg, values)
+        # AtomGroup-level caches involving molnums are no longer valid
+        rg.universe._cache['_valid'].pop('molecules', None)
+
+
 # segment attributes
 
 

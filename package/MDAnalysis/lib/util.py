@@ -202,7 +202,6 @@ import warnings
 import functools
 from functools import wraps
 import textwrap
-import weakref
 
 import mmtf
 import numpy as np
@@ -1497,19 +1496,15 @@ def conv_float(s):
         return s
 
 
-# A dummy, empty, cheaply-hashable object class to use with weakref caching.
-# (class object doesn't allow weakrefs to its instances, but user-defined
-#  classes do)
-class _CacheKey:
-    pass
-
-
 def cached(key, universe_validation=False):
     """Cache a property within a class.
 
-    Requires the Class to have a cache dict :attr:`_cache`. With
-    `universe_validation=True`, the Class should inherit from
-    :class:`~MDAnalysis.core.groups.GroupBase>`.
+    Requires the Class to have a cache dict :attr:`_cache`.
+
+    With `universe_validation=True`, the Class should inherit from
+    :class:`~MDAnalysis.core.groups.GroupBase` (or at least quack like it
+    regarding :attr:`~MDAnalysis.core.groups.GroupBase.universe` and
+    :meth:`~MDAnalysis.core.groups.GroupBase._check_universe_cache_validity`).
 
     Example
     -------
@@ -1533,7 +1528,7 @@ def cached(key, universe_validation=False):
                # As the example above, but before the cache lookup a check is
                # made whether this object's 'keyname' cache is valid under
                # universe. If that check fails, the object's _cache['keyname']
-               # is cleared and re-populated after this code has run.
+               # is first cleared, then re-populated after this code has run.
                return 20.0
 
 

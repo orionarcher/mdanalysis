@@ -84,6 +84,9 @@ Fixes
   * Fix syntax warning over comparison of literals using is (Issue #3066)
 
 Enhancements
+  * Optimizes AtomGroup.unwrap by pre-screening for large fragments relative to
+    the box vectors. Partly fixes dummy particle unwrapping
+    (Issue #3168, PR #3169)
   * Adds preliminary support for the ppc64le platform with minimal
     dependencies (Issue #3127, PR #3149)
   * Caches can now undergo central validation at the Universe level, opening
